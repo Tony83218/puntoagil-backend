@@ -1,0 +1,164 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =================== MÓDULO POS (VENTAS) ===================
+model Sale {
+  id            String        @id @default(cuid())
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  totalAmount   Float
+  paymentMethod String        // "cash", "credit", "card"
+  status        String        @default("completed") // completed, pending, cancelled
+  cashierId     String        // Usuario que atendió
+  customerId    String?       // Si es fiado, se vincula al cliente
+  customer      Customer?     @relation(fields: [customerId], references: [id])
+  details       SaleDetail[]
+  
+  @@map("sales")
+}
+
+model SaleDetail {
+  id          String   @id @default(cuid())
+  saleId      String
+  sale        Sale     @relation(fields: [saleId], references: [id])
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id])
+  batchId     String?  // Lote específico que se vendió (para PEPS)
+  batch       Batch?   @relation(fields: [batchId], references: [id])
+  quantity    Int
+  unitPrice   Float
+  subtotal    Float
+
+  @@map("sale_details")
+}
+
+// =================== MÓDULO INVENTARIO (CADUCIDADES) ===================
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  barcode     String?  @unique
+  category    String
+  description String?
+  currentStock Float    @default(0)
+  minStock    Float    @default(5) // Stock mínimo para alertar
+  imageUrl    String?
+  batches     Batch[]
+  saleDetails SaleDetail[]
+  supplierPrices SupplierPrice[]
+
+  @@map("products")
+}
+
+model Batch {
+  id          String   @id @default(cuid())
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id])
+  quantity    Float
+  purchasePrice Float
+  salePrice   Float
+  expirationDate DateTime
+  isActive    Boolean  @default(true) // Si ya está vencido o agotado
+  saleDetails SaleDetail[]
+
+  @@map("batches")
+}
+
+// =================== MÓDULO FIADOS (CRÉDITOS) ===================
+model Customer {
+  id          String   @id @default(cuid())
+  name        String
+  phone       String?
+  address     String?
+  photoUrl    String?  // Foto para evitar homónimos
+  totalDebt   Float    @default(0)
+  sales       Sale[]
+  debts       Debt[]
+
+  @@map("customers")
+}
+
+model Debt {
+  id          String   @id @default(cuid())
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id])
+  saleId      String?  // Venta original que generó la deuda
+  sale        Sale?    @relation(fields: [saleId], references: [id])
+  amount      Float
+  remaining   Float    // Saldo pendiente
+  dueDate     DateTime
+  status      String   @default("pending") // pending, partial, paid, overdue
+  payments    DebtPayment[]
+
+  @@map("debts")
+}
+
+model DebtPayment {
+  id          String   @id @default(cuid())
+  debtId      String
+  debt        Debt     @relation(fields: [debtId], references: [id])
+  amount      Float
+  paidAt      DateTime @default(now())
+  paymentMethod String // cash, transfer
+
+  @@map("debt_payments")
+}
+
+// =================== MÓDULO PROVEEDORES (COMPRAS) ===================
+model Supplier {
+  id          String   @id @default(cuid())
+  name        String
+  phone       String?
+  email       String?
+  address     String?
+  prices      SupplierPrice[]
+  purchaseOrders PurchaseOrder[]
+
+  @@map("suppliers")
+}
+
+model SupplierPrice {
+  id          String   @id @default(cuid())
+  supplierId  String
+  supplier    Supplier @relation(fields: [supplierId], references: [id])
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id])
+  price       Float
+  updatedAt   DateTime @default(now())
+
+  @@unique([supplierId, productId])
+  @@map("supplier_prices")
+}
+
+model PurchaseOrder {
+  id          String   @id @default(cuid())
+  supplierId  String
+  supplier    Supplier @relation(fields: [supplierId], references: [id])
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id])
+  quantity    Float
+  totalCost   Float
+  status      String   @default("sent") // sent, received, cancelled
+  createdAt   DateTime @default(now())
+  receivedAt  DateTime?
+
+  @@map("purchase_orders")
+}
+
+// =================== USUARIOS (AUTENTICACIÓN) ===================
+model User {
+  id          String   @id @default(cuid())
+  email       String   @unique
+  password    String   // Hasheado con bcrypt
+  fullName    String
+  role        String   @default("cashier") // admin, cashier
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@map("users")
+}
